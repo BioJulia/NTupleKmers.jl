@@ -17,8 +17,14 @@ SUITE["creation"]["63mer"] = @benchmarkable DNAKmer{63,2}($dnaseq)
 
 
 
-dnaseq = LongSequence{DNAAlphabet{2}}(randdnaseq(63))
-m = DNAKmer{63, 2}(dnaseq)
+
+onem   = NTupleKmers.DNAKmer{31, 1}(LongSequence{DNAAlphabet{2}}(randdnaseq(31)))
+twom   = NTupleKmers.DNAKmer{63, 2}(LongSequence{DNAAlphabet{2}}(randdnaseq(63)))
+threem = NTupleKmers.DNAKmer{95, 3}(LongSequence{DNAAlphabet{2}}(randdnaseq(95)))
+fourm  = NTupleKmers.DNAKmer{127, 4}(LongSequence{DNAAlphabet{2}}(randdnaseq(127)))
+
+
+m = NTupleKmers.DNAKmer{63, 2}(dnaseq)
 oldm = BigDNAMer{63}(dnaseq)
 
 @benchmark shiftright($m)
