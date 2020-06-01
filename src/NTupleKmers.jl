@@ -13,7 +13,7 @@ export
 
 using BioSequences
 
-import BioSequences: twobitnucs, inbounds_getindex
+import BioSequences: twobitnucs, BioSequence, Alphabet
 
 ###
 ### Type definition
@@ -45,7 +45,7 @@ expected from a concrete `BioSequence` type.
     available, since they can return a new kmer value as a result e.g.
     `reverse_complement`. 
 """
-struct Kmer{A<:NucleicAcidAlphabet{2},K,N} <: BioSequence{A}
+struct Kmer{A<:NucleicAcidAlphabet{2},K,N}
     data::NTuple{N,UInt64}
 end
 
@@ -66,6 +66,8 @@ const DNAKmer31 = DNAKmer{31,1}
 "Shortcut for the type `DNAKmer{63,2}`"
 const DNAKmer63 = DNAKmer{63,2}
 
+# TODO: Delete when Kmer is made to <: BioSequence.
+Alphabet(kmer::Kmer{A,K,N}) = A()
 
 ###
 ### Base Functions
@@ -179,23 +181,18 @@ function (::Type{BigMer{A,K}})(seq::LongSequence{A}) where {A<:NucleicAcidAlphab
     return BigMer{A,K}(x)
 end
 
+include("bitindex.jl")
+include("indexing.jl")
 
-###
-### Indexing
-###
 
-@inline function inbounds_getindex(x::Kmer{A,K,N}, i::Integer) where {A,K,N}
-    # Emulation of BitIndex type
-    i′ = i + div(64N - 2K, 2)
-    val = (i′ - 1) << 1
-    index = (val >> 6) + 1
-    offset = 62 - (val & (UInt8(64) - 0x01))
-    @inbounds begin
-        chunk = x.data[index]
-    end
-    bits = (chunk >> offset) & UInt64(3)
-    return reinterpret(eltype(x), 0x01 << bits)
-end
+
+
+
+
+
+
+
+
 
 
 
