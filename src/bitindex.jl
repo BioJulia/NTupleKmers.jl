@@ -43,6 +43,7 @@ struct BitsPerElem{N} end
 BitsPerElem(::A) where {A<:NucleicAcidAlphabet{2}} = BitsPerElem{2}()
 BitsPerElem(::A) where {A<:NucleicAcidAlphabet{4}} = BitsPerElem{4}()
 BitsPerElem(s::BioSequence) = BitsPerElem(Alphabet(s))
+BitsPerElem(k::Kmer) = BitsPerElem(Alphabet(k))
 
 """
 A type trait of any bitvector-like type, that specifies whether packed elements
@@ -75,22 +76,76 @@ struct BitIndex{N,W<:Unsigned,O<:ElementOrder}
     val::Int64
 end
 
-@inline function bitindex(::BitsPerSymbol{N}, ::Type{W}, ::Type{O}, i) where {N,W,O<:ElementOrder}
+@inline function bitindex(::BitsPerElem{N}, ::Type{W}, ::O, i::Integer) where {N,W,O<:ElementOrder}
     return BitIndex{N,W,O}((i - 1) << trailing_zeros(N))
 end
 
-@inline function bitindex(x, i)
-    return bitindex(BitsPerSymbol(x), registertype(x), ElementOrder(x), i)
+@inline function bitindex(x, i::Integer)
+    return bitindex(BitsPerElem(x), registertype(x), ElementOrder(x), i)
 end
 
-index_shift(i::BitIndex{N,UInt64,O}) where {N,O}   = 6
-index_shift(i::BitIndex{N,UInt32,O}) where {N,O}   = 5
-index_shift(i::BitIndex{N,UInt16,O}) where {N,O}   = 4
-index_shift(i::BitIndex{N,UInt8,O})  where {N,O}   = 3
-offset_mask(i::BitIndex{N,W,O})      where {N,W,O} = UInt8(8 * sizeof(W)) - 0x01
+"Compute the bitindex for the `i'th` base in `seq`'s bitvector-like datastore."
+@inline function bitindex(seq::Kmer, i::Integer)
+    return bitindex(BitsPerElem(seq), registertype(seq), ElementOrder(seq), i + n_unused(seq))
+end
 
-index(i::BitIndex)  = (i.val >> index_shift(i)) + 1
-offset(i::BitIndex) = i.val & offset_mask(i)
+# TODO: Decide whether to define these in terms of firstindex and lastindex,
+# instead of 1 and length(seq).
+@inline firstbitindex(seq::Kmer) = bitindex(seq, 1 + n_unused(seq))
+@inline lastbitindex(seq::Kmer)  = bitindex(seq, length(seq) + n_unused(seq))
+
+@inline function eachbitindex(from::BitIndex{N,W,O}, to::BitIndex{N,W,O}) where {N,W,O}
+    return from:N:to
+end
+
+@inline function eachbitindex(seq::Kmer, from = 1, to = length(seq))
+    return eachbitindex(from, to)
+end
+
+index_shift(i::BitIndex{N,UInt64,O}) where {N,O} = 6
+index_shift(i::BitIndex{N,UInt32,O}) where {N,O} = 5
+index_shift(i::BitIndex{N,UInt16,O}) where {N,O} = 4
+index_shift(i::BitIndex{N,UInt8,O})  where {N,O} = 3
+
+offset_mask(i::BitIndex{N,W,O}) where {N,W,O} = UInt8(8 * sizeof(W)) - 0x01
+
+"Get the index of the register the element pointed to by BitIndex `i`"
+register(i::BitIndex) = (i.val >> index_shift(i)) + 1
+
+"""
+    offset(i::BitIndex{N,W,RightToLeft}) where {N,W}
+
+Get the size of the right-shift of the register required to bring the element
+pointed to by BitIndex `i`, to the `N` least significant digits.
+
+```
+               Before:
+MSB of UInt |.....X..........| LSB of UInt
+                  |--------->| Size of the right-shift required = offset
+MSB of UInt |...............X| LSB of UInt
+               After:
+```
+"""
+@inline offset(i::BitIndex{N,W,RightToLeft}) where {N,W} = i.val & offset_mask(i)
+
+"""
+    offset(i::BitIndex{N,W,LeftToRight}) where {N,W}
+
+Get the size of the right-shift of the register required to bring the element
+pointed to by BitIndex `i`, to the `N` least significant digits.
+
+```
+               Before:
+MSB of UInt |.....X..........| LSB of UInt
+                  |--------->| Size of the right-shift required = offset
+MSB of UInt |...............X| LSB of UInt
+               After:
+```
+"""
+@inline offset(i::BitIndex{N,W,LeftToRight}) where {N,W} = (8 * sizeof(W) - N) - (i.val & offset_mask(i))
+
+"Create a bit mask covering the least significant `n` bits."
+bitmask(bidx::BitIndex{N,W,O}) where {N,W,O} = (one(W) << N) - one(W)
 
 Base.:+(i::BitIndex, n::Int) = typeof(i)(i.val + n)
 Base.:-(i::BitIndex, n::Int) = typeof(i)(i.val - n)
@@ -109,7 +164,7 @@ end
 
 function Base.iterate(i::BitIndex, s = 1)
     if s == 1
-        return (index(i), 2)
+        return (register(i), 2)
     elseif s == 2
         return (offset(i), 3)
     else
@@ -117,35 +172,17 @@ function Base.iterate(i::BitIndex, s = 1)
     end
 end
 
-Base.show(io::IO, i::BitIndex) = print(io, '(', index(i), ", ", offset(i), ')')
+Base.show(io::IO, i::BitIndex) = print(io, '(', register(i), ", ", offset(i), ')')
 
 "Extract the element stored in a packed bitarray referred to by bidx."
-@inline function extract_encoded_element(bidx::BitIndex{B,W,RightToLeft}, data::T) where {B,W,N,T<:Union{Vector{W},NTuple{N,W}}}
-    @inbounds chunk = data[index(bidx)]
+@inline function extract_encoded_element(bidx::B, data) where {B<:BitIndex}
+    @inbounds chunk = data[register(bidx)]
     offchunk = chunk >> offset(bidx)
     return offchunk & bitmask(bidx)
 end
 
-"Extract the element stored in a packed bitarray referred to by bidx."
-@inline function extract_encoded_element(bidx::BitIndex{B,W,LeftToRight}, data::T) where {B,W,N,T<:Union{Vector{W},NTuple{N,W}}}
-    @inbounds chunk = data[index(bidx)]
-    offchunk = chunk >> offset(bidx)
-    return offchunk & bitmask(bidx)
-end
-
-# Create a bit mask that fills least significant `n` bits (`n` must be a
-# non-negative integer).
-"Create a bit mask covering the least significant `n` bits."
-bitmask(::Type{T}, n::Integer) where {T} = (one(T) << n) - one(T)
-
-# Create a bit mask filling least significant N bits.
-# This is used in the extract_encoded_element function.
-bitmask(bidx::BitIndex{N,W}) where {N, W} = bitmask(W, N)
-bitmask(n::Integer) = bitmask(UInt64, n)
-bitmask(::Type{T}, ::Val{N}) where {T, N} = (one(T) << N) - one(T)
 
 
-# TODO: Work out places this is used and see if it is really nessecery given the
-# bitmask methods above.
-# TODO: Resolve this use of bits_per_symbol and A().
-bitmask(::A) where {A<:Alphabet} = bitmask(bits_per_symbol(A()))
+
+
+

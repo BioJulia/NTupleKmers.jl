@@ -21,29 +21,12 @@ Get the Vector or NTuple of unsigned integers that the encoded
 """
 function packed_data end
 
-@inline packed_data(kmer::Kmer) = kmer.data
+@inline packed_data(seq::Kmer) = seq.data
 
 
-
-
-
-
-
-
-
-
-
-
-
-@inline function extract_encoded_element(bidx::BitIndex{2,UInt64}, x::NTuple{N,UInt64}) where {N}
-    @inbounds chunk = x[index(bidx)]
-    offchunk = chunk >> (62 - offset(bidx))
-    return offchunk & bitmask(bidx)
+@inline function inbounds_getindex(seq::Kmer, i::Integer)
+    bidx = bitindex(seq, i)
+    elem = extract_encoded_element(bidx, packed_data(seq))
+    return decode(Alphabet(seq), elem)
 end
 
-"Extract the element stored in a packed bitarray referred to by bidx."
-@inline function extract_encoded_element(bidx::BitIndex{N,W}, data::AbstractArray{W}) where {N,W}
-    @inbounds chunk = data[index(bidx)]
-    offchunk = chunk >> offset(bidx)
-    return offchunk & bitmask(bidx)
-end

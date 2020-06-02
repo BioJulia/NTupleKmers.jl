@@ -13,7 +13,7 @@ export
 
 using BioSequences
 
-import BioSequences: twobitnucs, BioSequence, Alphabet
+import BioSequences: twobitnucs, BioSequence, Alphabet, decode
 
 ###
 ### Type definition
@@ -67,7 +67,7 @@ const DNAKmer31 = DNAKmer{31,1}
 const DNAKmer63 = DNAKmer{63,2}
 
 # TODO: Delete when Kmer is made to <: BioSequence.
-Alphabet(kmer::Kmer{A,K,N}) = A()
+Alphabet(kmer::Kmer{A,K,N}) where {A,K,N} = A()
 
 ###
 ### Base Functions
@@ -96,6 +96,7 @@ end
 
 @inline capacity(::Type{Kmer{A,K,N}}) where {A,K,N} = div(64N, 2)
 @inline n_unused(::Type{Kmer{A,K,N}}) where {A,K,N} = capacity(Kmer{A,K,N}) - K
+@inline n_unused(seq::Kmer) = n_unused(typeof(seq))
 
 @inline function checkmer(::Type{Kmer{A,K,N}}) where {A,K,N}
     c = capacity(Kmer{A,K,N})
@@ -183,7 +184,8 @@ end
 
 include("bitindex.jl")
 include("indexing.jl")
-
+include("predicates.jl")
+include("transformations.jl")
 
 
 
