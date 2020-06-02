@@ -57,49 +57,48 @@ end
 
 "Slinding window iterator."
 struct Window{I,K,S}
-    ln::Int
-    xs::I
+    n::Int
+    m::I # Base.ReshapedArray{Bool,S,BitArray{1},Tuple{}}
 
-    function Window{I,K,S}(xs::I) where {I,K,S} #TODO: S may be contained in I.
-
-        n = length(xs)
-        if n % S != 0
-
-            error("Letter size 'S' is not compatible with given data 'xs'.")
-        end
-
-        ln = (n / S) - K + 1
-
-        if ln < 1
-            error("K is too large.")
-        end
-
-        # @info "Window" I K S n ln
-
-        return new(ln, xs)
+    function Window{I,K,S}(m::I) where {I,K,S}
+        n = size(m,2) - K + 1 # n kmers (works with vectors)
+        return new{I,K,S}(n, m)
     end
+end
+
+function Window{K,S}(xs::I) where {K,S,I<:BitArray{1}} #TODO: The letter size S may be contained in I.
+    m = reshape(xs, S, :)
+    return Window{typeof(m),K,S}(m)
 end
 
 # Window(xs::I, n::Int) where {I} = Window{I,n}(xs)
 Window{K}(xs) where {K} = Window{K,1}(xs)
 Window{K,S}(xs::I) where {I,K,S} = Window{I,K,S}(xs)
-Window{I,K,S}(xs) where {I,K,S} = Window{I,K,S}(convert(I, xs)) # Note converting early for correct length.
+Window{I,K,S}(xs) where {I,K,S} = Window{K,S}(convert(I, xs)) # Note converting early for correct n calculation.
 
 Base.eltype(::Type{Window{I,K,S}}) where {I,K,S} = SubArray{eltype(I), 1, I, Tuple{UnitRange{Int64}}, true} # Note: applies to types like Vector{Char}.
 Base.eltype(::Type{Window{I,K,S}}) where {I<:LongSequence,K,S} = I
-Base.length(it::Window) = it.ln
+Base.length(it::Window) = it.n
 
-function Base.iterate(it::Window{I,K,S}, state=1) where {I,K,S}
 
-    #TODO: assume sequential iteration rather than arbitrary state. Increment a cached hi and lo by S.
+Base.size(seq::LongSequence, d) = length(seq) #TODO: this is a quick fix.
 
-    tmp = S*(state - 1)
+# Note: ReshapedArrayIterator.
+function Base.iterate(it::Window{I,K,S}, state=0) where {I<:Base.ReshapedArray,K,S} #Note: zero based state (state behaviour matches eachcol iterator).
 
-    lo = tmp + 1
-    hi = tmp + S*K
+    if state < it.n
+        next_state = state+1
+        return (view(it.m, :, next_state:state + K), next_state)
+    end
 
-    if state <= it.ln
-        return (view(it.xs, lo:hi), state+1) #TODO: adjust view based on letter size S.
+    return nothing
+end
+
+function Base.iterate(it::Window{I,K,S}, state=0) where {I,K,S} #Note: zero based state (state behaviour matches eachcol iterator).
+
+    if state < it.n
+        next_state = state+1
+        return (view(it.m, next_state:state + K), next_state) #Note: assuming vector.
     end
 
     return nothing
